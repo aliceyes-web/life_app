@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>生活小幫手</title>
+  <meta name="description" content="天氣、行事曆、記事、待辦與載具條碼，一個 APP 搞定。">
+  <meta name="theme-color" content="#F7F4EE">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="生活小幫手">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+  <script>
+    // Apply the saved theme before first paint to avoid a flash.
+    try {
+      var s = (JSON.parse(localStorage.getItem('lifehelper.v1') || '{}').settings) || {};
+      var dark = s.autoDark !== false && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.dataset.theme = s.theme || 'sage';
+      document.documentElement.dataset.mode = dark ? 'dark' : (s.mode || 'warm');
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <main id="app"></main>
+  <div class="tabbar" id="tabbar"></div>
+  <noscript>生活小幫手需要開啟 JavaScript 才能使用。</noscript>
+  <script src="vendor/lunar.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
