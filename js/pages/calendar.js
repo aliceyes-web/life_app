@@ -1,7 +1,7 @@
 import { store } from '../store.js';
 import { esc, icon, uid, ymd, parseYmd, toast, WEEK } from '../util.js';
 import { dayType, holidayName, lunarDate, termOn, hasHolidayData } from '../almanac.js';
-import { eventsOn, eventDays, EVENT_TAGS, tagName } from '../events.js';
+import { eventsOn, EVENT_TAGS, tagName } from '../events.js';
 import * as gcal from '../gcal.js';
 import { openSheet } from '../sheet.js';
 
@@ -14,18 +14,28 @@ export function render() {
   const { y, m } = view;
   const first = new Date(y, m, 1);
   const days = new Date(y, m + 1, 0).getDate();
-  const evDays = eventDays(y, m);
   const today = ymd();
   const cells = [];
-  for (let i = 0; i < first.getDay(); i++) cells.push('<div></div>');
+  const MAX = 2; // event labels shown per day; the rest become "+N"
+  for (let i = 0; i < first.getDay(); i++) cells.push('<div class="cal-blank"></div>');
   for (let d = 1; d <= days; d++) {
     const date = new Date(y, m, d);
     const key = ymd(date);
     const t = dayType(date);
     const off = t === 'holiday' || t === 'weekend';
     const cls = ['cal-day', off ? 'we' : '', key === today ? 'today' : '', key === sel ? 'sel' : ''].join(' ');
-    const dot = holidayName(date) ? 'hol' : evDays.has(key) ? 'ev' : '';
-    cells.push(`<button class="${cls}" data-day="${key}" aria-label="${m + 1}月${d}日${holidayName(date) ? ' ' + holidayName(date) : ''}" aria-pressed="${key === sel}"><span class="n">${d}</span><i class="${dot}"></i></button>`);
+    const hol = holidayName(date);
+    const evs = eventsOn(key);
+    const labels = [];
+    if (hol) labels.push(`<span class="cal-ev hol">${esc(hol)}</span>`);
+    const room = Math.max(0, MAX - labels.length);
+    for (const e of evs.slice(0, room)) {
+      labels.push(`<span class="cal-ev ${e.source === 'google' ? 'google' : esc(e.tag || '')}">${esc(e.title)}</span>`);
+    }
+    const more = evs.length - Math.min(evs.length, room);
+    if (more > 0) labels.push(`<span class="cal-more">+${more}</span>`);
+    const aria = `${m + 1}月${d}日${hol ? ' ' + hol : ''}${evs.length ? `，${evs.length} 個行程` : ''}`;
+    cells.push(`<button class="${cls}" data-day="${key}" aria-label="${esc(aria)}" aria-pressed="${key === sel}"><span class="n">${d}</span>${labels.join('')}</button>`);
   }
 
   const selDate = parseYmd(sel);
@@ -52,7 +62,7 @@ export function render() {
         : '<a class="filter" href="#/settings" style="display:inline-flex;align-items:center">設定 Google 日曆</a>'}
     </div>
 
-    <section class="card" style="padding:14px 10px;gap:4px">
+    <section class="card" style="padding:12px 6px;gap:4px">
       <div class="cal-head">${WEEK.map((w, i) => `<div class="${i === 0 || i === 6 ? 'we' : ''}">${w}</div>`).join('')}</div>
       <div class="cal-grid">${cells.join('')}</div>
       ${!hasHolidayData(y) ? `<div class="notice" style="padding:6px">尚未收錄 ${y} 年的放假日資料</div>` : ''}

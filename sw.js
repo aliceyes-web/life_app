@@ -1,11 +1,11 @@
 // Service worker: cache the app shell so it opens offline.
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.1.0';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './css/app.css', './vendor/lunar.js',
   './js/app.js', './js/router.js', './js/store.js', './js/theme.js', './js/util.js', './js/sheet.js',
   './js/almanac.js', './js/barcode.js', './js/weather.js', './js/gcal.js', './js/events.js',
   './js/pages/home.js', './js/pages/weather.js', './js/pages/calendar.js', './js/pages/notes.js',
-  './js/pages/todo.js', './js/pages/carrier.js', './js/pages/settings.js',
+  './js/pages/carrier.js', './js/pages/settings.js',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
 ];
 

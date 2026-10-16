@@ -3,7 +3,6 @@ import { esc, icon, ymd, md, shortTime } from '../util.js';
 import { lunarDate, nextTerm, termLabel, dayType, holidayName, nextHoliday, weekName } from '../almanac.js';
 import { getWeather, summarize, wxIcon } from '../weather.js';
 import { eventsOn } from '../events.js';
-import { todayTodos } from './todo.js';
 import { noteTagClass } from './notes.js';
 
 function greeting(name) {
@@ -22,19 +21,9 @@ export function render() {
   const hol = holidayName(now);
   const next = nextHoliday(now);
   const events = eventsOn(key);
-  const todos = todayTodos();
-  const open = todos.filter((t) => !t.done);
-  const doneN = todos.length - open.length;
   const notes = [...store.get().notes].sort((a, b) => (b.pinned - a.pinned) || (b.updatedAt - a.updatedAt)).slice(0, 2);
 
-  let bannerText;
-  if (todos.length && !open.length) bannerText = `${greeting(s.name)}！今天的事都完成了，辛苦了！`;
-  else {
-    const parts = [];
-    if (events.length) parts.push(`${events.length} 個行程`);
-    if (open.length) parts.push(`${open.length} 件待辦`);
-    bannerText = `${greeting(s.name)}！` + (parts.length ? `今天有 ${parts.join('、')}。` : '今天沒有安排，好好過一天。');
-  }
+  const bannerText = `${greeting(s.name)}！` + (events.length ? `今天有 ${events.length} 個行程。` : '今天沒有安排，好好過一天。');
 
   const typeChip = hol
     ? `<span class="chip red">${esc(hol)}</span>`
@@ -87,16 +76,6 @@ export function render() {
         : '<div class="empty">今天沒有行程</div>'}
     </section>
 
-    <section class="card">
-      <div class="card-head"><h2 class="card-title">待辦事項</h2><a class="link-btn" href="#/todo">${todos.length ? `${doneN} / ${todos.length} 完成` : '新增待辦'}</a></div>
-      ${todos.length ? `<div class="progress"><i style="width:${Math.round((doneN / todos.length) * 100)}%"></i></div>` : ''}
-      ${open.length ? `<div>${open.slice(0, 4).map((t) => `
-        <div class="row" style="min-height:44px">
-          <button class="check" data-toggle="${t.id}" aria-label="標記完成：${esc(t.title)}"><span></span></button>
-          <span class="ellipsis" style="flex:1">${esc(t.title)}</span>
-          ${t.overdue ? '<span class="tiny" style="color:var(--warm-text)">已逾期</span>' : ''}
-        </div>`).join('')}</div>` : todos.length ? '' : '<div class="empty">今天沒有待辦</div>'}
-    </section>
 
     <section style="display:flex;flex-direction:column;gap:10px">
       <div class="card-head"><h2 class="card-title">最近記事</h2><a class="link-btn" href="#/notes">全部記事</a></div>
@@ -111,11 +90,6 @@ export function render() {
 }
 
 export function mount(root) {
-  root.querySelectorAll('[data-toggle]').forEach((b) => b.addEventListener('click', (ev) => {
-    ev.preventDefault();
-    const id = b.dataset.toggle;
-    store.update((s) => { const t = s.todos.find((x) => x.id === id); if (t) { t.done = true; t.doneAt = Date.now(); } });
-  }));
   const box = root.querySelector('#home-wx');
   const paint = (w) => {
     box.innerHTML = `

@@ -6,7 +6,6 @@ import * as home from './pages/home.js';
 import * as weather from './pages/weather.js';
 import * as calendar from './pages/calendar.js';
 import * as notes from './pages/notes.js';
-import * as todo from './pages/todo.js';
 import * as carrier from './pages/carrier.js';
 import * as settings from './pages/settings.js';
 
@@ -15,7 +14,6 @@ const TABS = [
   { path: '/weather', label: '天氣', icon: 'sun' },
   { path: '/calendar', label: '行事曆', icon: 'calendar' },
   { path: '/notes', label: '記事', icon: 'note' },
-  { path: '/todo', label: '待辦', icon: 'todo' },
 ];
 
 function resolve(path) {
@@ -23,7 +21,7 @@ function resolve(path) {
   if (m) return { page: { render: () => notes.renderEditor(m[1]), mount: (r) => notes.mountEditor(r, m[1]) }, tab: false, title: '記事' };
   const map = {
     '/': [home, '首頁'], '/weather': [weather, '天氣'], '/calendar': [calendar, '行事曆'],
-    '/notes': [notes, '記事本'], '/todo': [todo, '待辦清單'],
+    '/notes': [notes, '記事本'],
     '/carrier': [carrier, '載具條碼', false], '/settings': [settings, '設定', false],
   };
   const hit = map[path] || map['/'];

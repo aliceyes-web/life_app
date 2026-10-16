@@ -69,7 +69,7 @@ export function render() {
         <button class="btn" id="export">匯出備份</button>
         <label class="btn" style="cursor:pointer">匯入備份<input type="file" id="import" accept="application/json,.json" class="sr-only"></label>
       </div>
-      <div class="notice">待辦、記事、行程都存在這支手機的瀏覽器裡。換手機或清除瀏覽器資料前，請先匯出備份。</div>
+      <div class="notice">記事、行程、設定都存在這支手機的瀏覽器裡。換手機或清除瀏覽器資料前，請先匯出備份。</div>
     </section>
 
     <p class="notice" style="text-align:center">生活小幫手 v1.0 · 天氣資料 Open-Meteo · 農曆計算 lunar-javascript</p>
