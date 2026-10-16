@@ -1,7 +1,9 @@
 import { store } from '../store.js';
+import { APP_VERSION } from '../version.js';
 import { esc, icon, toast, ymd } from '../util.js';
 import { THEMES, MODES, effectiveMode } from '../theme.js';
 import * as gcal from '../gcal.js';
+import { diagnose, callStats, cooldownLeft } from '../bus.js';
 import { editCarrier } from './carrier.js';
 import { openSheet } from '../sheet.js';
 
@@ -67,6 +69,7 @@ export function render() {
       <h2 style="font-size:16px">公車（TDX）</h2>
       <div class="list">
         <button class="list-row" id="tdx" style="border:none;background:none;width:100%;text-align:left;cursor:pointer;color:var(--text)"><span class="grow">TDX 金鑰</span><span class="muted small">${s.tdxId && s.tdxSecret ? '已設定' : '未設定'}</span>${icon('next', 16, 2)}</button>
+        ${s.tdxId && s.tdxSecret ? `<button class="list-row" id="tdx-test" style="border:none;background:none;width:100%;text-align:left;cursor:pointer;color:var(--text)"><span class="grow">測試 TDX 連線</span>${icon('next', 16, 2)}</button>` : ''}
       </div>
       <div class="notice">到站時間來自交通部 TDX 平臺，金鑰只存在這支手機。</div>
     </section>
@@ -80,7 +83,7 @@ export function render() {
       <div class="notice">記事、行程、設定都存在這支手機的瀏覽器裡。換手機或清除瀏覽器資料前，請先匯出備份。</div>
     </section>
 
-    <p class="notice" style="text-align:center">生活小幫手 v1.0 · 天氣資料 Open-Meteo · 農曆計算 lunar-javascript</p>
+    <p class="notice" style="text-align:center">生活小幫手 v${APP_VERSION} · 天氣資料 Open-Meteo · 農曆計算 lunar-javascript</p>
   </div>`;
 }
 
@@ -93,6 +96,7 @@ export function mount(root) {
   root.querySelector('#carrier').addEventListener('click', editCarrier);
   root.querySelector('#gclient').addEventListener('click', editClientId);
   root.querySelector('#tdx').addEventListener('click', editTdx);
+  root.querySelector('#tdx-test')?.addEventListener('click', testTdx);
   root.querySelector('#glink')?.addEventListener('click', async () => {
     if (gcal.isLinked()) { gcal.disconnect(); store.setSettings({}); toast('已中斷 Google 日曆連結'); return; }
     try { await gcal.connect(); store.setSettings({}); toast('已連結 Google 日曆'); }
@@ -154,4 +158,27 @@ function editTdx() {
       return true;
     },
   });
+}
+
+function testTdx() {
+  const st = callStats();
+  const last = store.getCache('tdxLast429');
+  const head = [
+    `本 APP 送出的查詢：最近 1 分鐘 ${st.min} 次、1 小時 ${st.hour} 次、24 小時 ${st.day} 次`,
+    cooldownLeft() ? `目前暫停中，約 ${cooldownLeft()} 秒後恢復` : '目前沒有暫停',
+    last ? `上次被限制：${new Date(last.at).toLocaleString('zh-TW')}，${last.detail || '（無內容）'}` : '還沒被 TDX 限制過',
+    '',
+  ];
+  const { form } = openSheet({
+    title: 'TDX 連線測試',
+    body: `<pre id="diag" style="white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.6;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin:0;max-height:55vh;overflow:auto">${esc(head.join('\n'))}測試中…</pre>`,
+    actions: [{ id: 'copy', label: '複製結果' }],
+    onAction(action, _d, f) {
+      const t = f.querySelector('#diag').textContent;
+      navigator.clipboard?.writeText(t).then(() => toast('已複製'), () => toast('無法複製，請截圖'));
+      return false;
+    },
+  });
+  diagnose().then((lines) => { form.querySelector('#diag').textContent = head.concat(lines).join('\n'); })
+    .catch((e) => { form.querySelector('#diag').textContent = head.join('\n') + '測試失敗：' + e.message; });
 }

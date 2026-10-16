@@ -43,6 +43,7 @@ function render() {
   if (lastPath === '/bus' && path !== '/bus') bus.stop();
   if (lastPath && lastPath.startsWith('/bus/') && path !== lastPath) bus.stopRoute();
   const changed = path !== lastPath;
+  if (changed) document.querySelectorAll('dialog.sheet').forEach((d) => { try { d.close(); } catch { /* ignore */ } d.remove(); });
   const { page, title, tab } = resolve(path);
   const scroll = changed ? 0 : window.scrollY;
   app.innerHTML = page.render();

@@ -72,7 +72,69 @@ export function cooldownLeft() {
   return Math.max(0, Math.ceil((until - Date.now()) / 1000));
 }
 function rateError() {
-  return Object.assign(new Error(`TDX 暫時限制查詢，約 ${cooldownLeft()} 秒後恢復`), { code: 'RATE' });
+  const last = store.getCache('tdxLast429');
+  const why = last?.detail && /message/i.test(last.detail) ? `（TDX：${(last.detail.match(/"message"\s*:\s*"([^"]+)"/) || [])[1] || last.detail}）` : '';
+  return Object.assign(new Error(`TDX 暫時限制查詢${why}，約 ${cooldownLeft()} 秒後恢復`), { code: 'RATE' });
+}
+
+// 記錄本 APP 送出的 TDX 請求時間，方便確認有沒有送太多
+function logCall() {
+  const now = Date.now();
+  const list = (store.getCache('tdxCalls') || []).filter((t) => now - t < 86400000).slice(-500);
+  list.push(now);
+  store.setCache('tdxCalls', list);
+}
+export function callStats() {
+  const now = Date.now();
+  const list = store.getCache('tdxCalls') || [];
+  return {
+    min: list.filter((t) => now - t < 60000).length,
+    hour: list.filter((t) => now - t < 3600000).length,
+    day: list.filter((t) => now - t < 86400000).length,
+  };
+}
+
+/** 連線測試：重新取得通行憑證，再送一個最小的查詢，回報每一步的結果 */
+export async function diagnose() {
+  const lines = [];
+  const s = store.settings();
+  lines.push(`Client Id：${s.tdxId ? s.tdxId.slice(0, 6) + '…' : '（未設定）'}`);
+  if (!s.tdxId || !s.tdxSecret) return lines;
+  let token = '';
+  try {
+    const r = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'client_credentials', client_id: s.tdxId, client_secret: s.tdxSecret }),
+    });
+    const text = await r.text();
+    lines.push(`① 取得憑證：HTTP ${r.status}`);
+    try {
+      const j = JSON.parse(text);
+      token = j.access_token || '';
+      lines.push(token ? `   憑證長度 ${token.length}，有效 ${Math.round((j.expires_in || 0) / 3600)} 小時` : `   回應：${text.slice(0, 160)}`);
+      if (token) store.setCache('tdxToken', { id: s.tdxId, token, exp: Date.now() + (Number(j.expires_in) || 86400) * 1000 });
+    } catch { lines.push(`   回應：${text.slice(0, 160)}`); }
+  } catch (e) {
+    lines.push(`① 取得憑證：失敗（${e.message}，可能是網路或瀏覽器擋下跨網域請求）`);
+    return lines;
+  }
+  if (!token) return lines;
+  try {
+    logCall();
+    const r = await fetch(`${API}/Route/City/Keelung?%24top=1&%24select=RouteUID&%24format=JSON`, { headers: { authorization: `Bearer ${token}` } });
+    const text = await r.text();
+    lines.push(`② 測試查詢：HTTP ${r.status}`);
+    for (const h of ['x-ratelimit-limit-day', 'x-ratelimit-remaining-day', 'x-ratelimit-limit-second', 'x-ratelimit-remaining-second', 'retry-after']) {
+      const v = r.headers.get(h);
+      if (v != null) lines.push(`   ${h}: ${v}`);
+    }
+    lines.push(`   回應：${text.slice(0, 160)}`);
+    if (r.ok) store.setCache('tdxCooldown', 0);
+  } catch (e) {
+    lines.push(`② 測試查詢：失敗（${e.message}）`);
+  }
+  return lines;
 }
 
 async function api(path, params = {}) {
@@ -82,6 +144,7 @@ async function api(path, params = {}) {
   const url = `${API}${path}?${qs}`;
   const call = (tk) => throttled(async () => {
     if (cooldownLeft()) throw rateError();
+    logCall();
     try { return await fetch(url, { headers: { authorization: `Bearer ${tk}` } }); }
     catch { throw new Error('連不到 TDX，請確認網路'); }
   });

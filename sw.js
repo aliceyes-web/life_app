@@ -1,8 +1,8 @@
 // Service worker: cache the app shell so it opens offline.
-const VERSION = 'v1.5.0';
+const VERSION = 'v1.5.2';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './css/app.css', './vendor/lunar.js',
-  './js/app.js', './js/router.js', './js/store.js', './js/theme.js', './js/util.js', './js/sheet.js',
+  './js/app.js', './js/router.js', './js/store.js', './js/theme.js', './js/util.js', './js/sheet.js', './js/version.js',
   './js/almanac.js', './js/barcode.js', './js/weather.js', './js/gcal.js', './js/events.js', './js/bus.js',
   './js/pages/home.js', './js/pages/weather.js', './js/pages/calendar.js', './js/pages/notes.js',
   './js/pages/bus.js', './js/pages/carrier.js', './js/pages/settings.js',
@@ -23,7 +23,7 @@ self.addEventListener('fetch', (e) => {
   // App files: network first (so updates show up), fall back to cache offline.
   if (url.origin === location.origin) {
     e.respondWith(
-      fetch(e.request).then((res) => {
+      fetch(e.request, { cache: 'no-cache' }).then((res) => {
         const copy = res.clone();
         caches.open(VERSION).then((c) => c.put(e.request, copy));
         return res;

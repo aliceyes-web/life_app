@@ -165,7 +165,7 @@ function addFav(rerender) {
         route = r;
         city = r.city;
         box.innerHTML = '<div class="empty">載入站牌中…</div>';
-        try { dirs = await stopsOfRoute(city, r.uid); }
+        try { dirs = await stopsOfRouteCached(city, r.uid); }
         catch (e) { step1(null, kw, '!' + e.message); return; }
         if (!dirs.length) { step1(null, kw, '!這條路線沒有站牌資料'); return; }
         dirIdx = 0;
