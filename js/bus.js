@@ -48,17 +48,40 @@ async function fetchToken(force = false) {
   return j.access_token;
 }
 
+// TDX 對每把金鑰有每秒呼叫次數上限：所有請求排隊、一次一個、間隔至少 MIN_GAP 毫秒
+const MIN_GAP = 350;
+let queue = Promise.resolve();
+let lastCall = 0;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function throttled(fn) {
+  const run = queue.then(async () => {
+    const wait = lastCall + MIN_GAP - Date.now();
+    if (wait > 0) await sleep(wait);
+    lastCall = Date.now();
+    return fn();
+  });
+  queue = run.catch(() => {});
+  return run;
+}
+
 async function api(path, params = {}) {
   const qs = Object.entries({ ...params, $format: 'JSON' })
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
   const url = `${API}${path}?${qs}`;
-  const call = async (token) => {
-    try { return await fetch(url, { headers: { authorization: `Bearer ${token}` } }); }
+  const token = await getToken();
+  const call = (tk) => throttled(async () => {
+    try { return await fetch(url, { headers: { authorization: `Bearer ${tk}` } }); }
     catch { throw new Error('連不到 TDX，請確認網路'); }
-  };
-  let r = await call(await getToken());
+  });
+  let r = await call(token);
   if (r.status === 401) r = await call(await getToken(true));
-  if (r.status === 429) throw new Error('查詢太頻繁，請稍後再試');
+  if (r.status === 429) {
+    // wait a bit and try once more before giving up
+    const after = Number(r.headers.get('retry-after')) || 2;
+    await sleep(Math.min(after, 5) * 1000);
+    r = await call(token);
+  }
+  if (r.status === 429) throw Object.assign(new Error('TDX 查詢太頻繁，稍等一下會自動再更新'), { code: 'RATE' });
   if (!r.ok) throw new Error(`TDX 回應錯誤（${r.status}）`);
   return r.json();
 }

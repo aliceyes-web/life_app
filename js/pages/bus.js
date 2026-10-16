@@ -9,6 +9,7 @@ let lastError = '';
 let editing = false;
 let timer = null;
 let loading = false;
+let lastAttempt = 0;
 
 const REFRESH_MS = 30000;
 
@@ -81,7 +82,7 @@ export function mount(root, rerender) {
   // auto refresh while this page is shown
   clearInterval(timer);
   if (hasKeys() && store.get().busFavs.length) {
-    if (!updatedAt || Date.now() - updatedAt > REFRESH_MS) refresh(rerender);
+    if (Date.now() - lastAttempt > REFRESH_MS && (!updatedAt || Date.now() - updatedAt > REFRESH_MS)) refresh(rerender);
     timer = setInterval(() => {
       if (!root.isConnected || !location.hash.startsWith('#/bus')) { clearInterval(timer); return; }
       if (document.visibilityState === 'visible') refresh(rerender);
@@ -96,6 +97,7 @@ async function refresh(rerender, manual = false) {
   const favs = store.get().busFavs;
   if (!favs.length) return;
   loading = true;
+  lastAttempt = Date.now();
   try {
     etas = await fetchEtas(favs);
     updatedAt = new Date();
@@ -114,6 +116,8 @@ export async function loadEtas() {
   const favs = store.get().busFavs;
   if (!hasKeys() || !favs.length) return null;
   if (updatedAt && Date.now() - updatedAt < 20000) return etas;
+  if (Date.now() - lastAttempt < 20000) return etas.size ? etas : new Map();
+  lastAttempt = Date.now();
   etas = await fetchEtas(favs);
   updatedAt = new Date();
   return etas;
@@ -186,7 +190,7 @@ function addFav(rerender) {
           const s = d.stops[Number(b.dataset.stop)];
           const dup = store.get().busFavs.some((f) => f.routeUID === route.uid && f.stopUID === s.uid);
           if (dup) { toast('這個站牌已經在常用清單裡'); return; }
-          updatedAt = null;
+          updatedAt = null; lastAttempt = 0;
           store.update((st) => st.busFavs.push({
             id: uid(), city, routeUID: route.uid, routeName: route.name, direction: d.direction,
             dest: destOf(d), stopUID: s.uid, stopName: s.name,
@@ -202,14 +206,14 @@ function addFav(rerender) {
 }
 
 // ---------- 整條路線即時動態 ----------
-let rv = { favId: null, dirIdx: 0, dirs: null, live: null, at: null, err: '', loading: false };
+let rv = { favId: null, dirIdx: 0, dirs: null, live: null, at: null, err: '', loading: false, initing: false, tried: false };
 let rTimer = null;
 const ROUTE_REFRESH_MS = 20000;
 
 export function renderRoute(favId) {
   const f = store.get().busFavs.find((x) => x.id === favId);
   if (!f) return '<div class="page"><a class="icon-btn" href="#/bus" aria-label="返回">‹</a><div class="card empty">找不到這個站牌</div></div>';
-  if (rv.favId !== favId) rv = { favId, dirIdx: -1, dirs: null, live: null, at: null, err: '', loading: false };
+  if (rv.favId !== favId) rv = { favId, dirIdx: -1, dirs: null, live: null, at: null, err: '', loading: false, initing: false, tried: false };
   const dirs = rv.dirs;
   const d = dirs ? dirs[rv.dirIdx] : null;
   const destOf = (x) => (x.stops.length ? x.stops[x.stops.length - 1].name : '');
@@ -259,18 +263,21 @@ export function mountRoute(root, favId, rerender) {
     finally { rv.loading = false; if (location.hash === `#/bus/${favId}`) rerender(); }
   };
   const init = async () => {
+    if (rv.initing) return;
+    rv.initing = true; rv.tried = true;
     try {
       rv.dirs = await stopsOfRouteCached(f.city, f.routeUID);
       const i = rv.dirs.findIndex((x) => x.direction === f.direction);
       rv.dirIdx = i >= 0 ? i : 0;
       rv.err = '';
     } catch (e) { rv.err = e.message; }
+    rv.initing = false;
     if (location.hash !== `#/bus/${favId}`) return;
     rerender();
     requestAnimationFrame(scrollToMine);
     loadLive();
   };
-  if (!rv.dirs) init();
+  if (!rv.dirs && !rv.tried) init();
   root.querySelector('#r-retry')?.addEventListener('click', () => { rv.err = ''; rerender(); init(); });
   root.querySelector('#r-refresh')?.addEventListener('click', () => loadLive(true));
   root.querySelectorAll('[data-rdir]').forEach((b) => b.addEventListener('click', () => {
