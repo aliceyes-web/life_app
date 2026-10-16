@@ -4,6 +4,7 @@ import { lunarDate, nextTerm, termLabel, dayType, holidayName, nextHoliday, week
 import { getWeather, summarize, wxIcon } from '../weather.js';
 import { eventsOn } from '../events.js';
 import { noteTagClass } from './notes.js';
+import { favCard, loadEtas } from './bus.js';
 
 function greeting(name) {
   const h = new Date().getHours();
@@ -77,6 +78,11 @@ export function render() {
     </section>
 
 
+    ${store.get().busFavs.length ? `<section class="card" style="gap:4px">
+      <div class="card-head"><h2 class="card-title">常用站牌</h2><a class="link-btn" href="#/bus">全部站牌</a></div>
+      <div id="home-bus">${store.get().busFavs.slice(0, 3).map((f) => favCard(f, undefined)).join('')}</div>
+    </section>` : ''}
+
     <section style="display:flex;flex-direction:column;gap:10px">
       <div class="card-head"><h2 class="card-title">最近記事</h2><a class="link-btn" href="#/notes">全部記事</a></div>
       ${notes.length ? `<div class="grid2">${notes.map((n) => `
@@ -90,6 +96,13 @@ export function render() {
 }
 
 export function mount(root) {
+  const busBox = root.querySelector('#home-bus');
+  if (busBox) {
+    loadEtas().then((m) => {
+      if (!m && busBox.isConnected) { busBox.insertAdjacentHTML('beforeend', '<a class="tiny" href="#/settings" style="display:block;padding-top:6px">請先到設定填入 TDX 金鑰</a>'); return; }
+      if (m && busBox.isConnected) busBox.innerHTML = store.get().busFavs.slice(0, 3).map((f) => favCard(f, m.has(f.id) ? m.get(f.id) : null)).join('');
+    }).catch((e) => { if (busBox.isConnected) busBox.insertAdjacentHTML('beforeend', `<div class="tiny error-text" style="padding-top:6px">${esc(e.message)}</div>`); });
+  }
   const box = root.querySelector('#home-wx');
   const paint = (w) => {
     box.innerHTML = `

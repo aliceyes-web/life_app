@@ -64,6 +64,14 @@ export function render() {
     </section>
 
     <section style="display:flex;flex-direction:column;gap:10px">
+      <h2 style="font-size:16px">公車（TDX）</h2>
+      <div class="list">
+        <button class="list-row" id="tdx" style="border:none;background:none;width:100%;text-align:left;cursor:pointer;color:var(--text)"><span class="grow">TDX 金鑰</span><span class="muted small">${s.tdxId && s.tdxSecret ? '已設定' : '未設定'}</span>${icon('next', 16, 2)}</button>
+      </div>
+      <div class="notice">到站時間來自交通部 TDX 平臺，金鑰只存在這支手機。</div>
+    </section>
+
+    <section style="display:flex;flex-direction:column;gap:10px">
       <h2 style="font-size:16px">資料備份</h2>
       <div class="grid2">
         <button class="btn" id="export">匯出備份</button>
@@ -84,6 +92,7 @@ export function mount(root) {
   name.addEventListener('change', () => store.setSettings({ name: name.value.trim() }));
   root.querySelector('#carrier').addEventListener('click', editCarrier);
   root.querySelector('#gclient').addEventListener('click', editClientId);
+  root.querySelector('#tdx').addEventListener('click', editTdx);
   root.querySelector('#glink')?.addEventListener('click', async () => {
     if (gcal.isLinked()) { gcal.disconnect(); store.setSettings({}); toast('已中斷 Google 日曆連結'); return; }
     try { await gcal.connect(); store.setSettings({}); toast('已連結 Google 日曆'); }
@@ -118,6 +127,30 @@ function editClientId() {
       if (v && !/\.apps\.googleusercontent\.com$/.test(v)) { toast('用戶端 ID 應以 .apps.googleusercontent.com 結尾'); return false; }
       if (v !== store.settings().gClientId) gcal.disconnect();
       store.setSettings({ gClientId: v });
+      return true;
+    },
+  });
+}
+
+function editTdx() {
+  const s = store.settings();
+  openSheet({
+    title: 'TDX 金鑰',
+    body: `
+      <div class="small muted" style="line-height:1.7">到 <a href="https://tdx.transportdata.tw/" target="_blank" rel="noopener">tdx.transportdata.tw</a> 免費註冊會員，登入後在「會員中心 › 資料服務 › API 金鑰」可以看到 Client Id 與 Client Secret，複製貼到下面。</div>
+      <label class="field"><span>Client Id</span><input class="input" name="id" value="${esc(s.tdxId)}" autocomplete="off" spellcheck="false" autocapitalize="off"></label>
+      <label class="field"><span>Client Secret</span><input class="input" name="secret" type="password" value="${esc(s.tdxSecret)}" autocomplete="off" spellcheck="false" autocapitalize="off"></label>`,
+    actions: [
+      ...(s.tdxId ? [{ id: 'clear', label: '清除', cls: 'danger' }] : []),
+      { id: 'save', label: '儲存', cls: 'primary', submit: true },
+    ],
+    onAction(action, d) {
+      store.setCache('tdxToken', null);
+      if (action === 'clear') { store.setSettings({ tdxId: '', tdxSecret: '' }); return true; }
+      const id = d.id.trim(); const secret = d.secret.trim();
+      if (!id || !secret) { toast('請填寫 Client Id 與 Client Secret'); return false; }
+      store.setSettings({ tdxId: id, tdxSecret: secret });
+      toast('已儲存 TDX 金鑰');
       return true;
     },
   });

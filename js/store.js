@@ -10,10 +10,13 @@ const DEFAULTS = {
     carrier: '',          // 手機條碼載具, e.g. /ABC1234
     city: { name: '台北市', lat: 25.0375, lon: 121.5637 },
     gClientId: '',        // Google OAuth client ID
+    tdxId: '',            // TDX Client Id（公車）
+    tdxSecret: '',        // TDX Client Secret
   },
   todos: [],   // {id,title,note,due,done,createdAt,doneAt}
   notes: [],   // {id,title,body,tag,pinned,updatedAt}
   events: [],  // {id,title,date,allDay,start,end,place,tag}
+  busFavs: [], // {id,city,routeUID,routeName,direction,dest,stopUID,stopName}
   cache: {},   // weather / google calendar caches
 };
 
@@ -26,7 +29,7 @@ function load() {
   const s = structuredClone(DEFAULTS);
   if (raw && typeof raw === 'object') {
     Object.assign(s.settings, raw.settings || {});
-    for (const k of ['todos', 'notes', 'events']) if (Array.isArray(raw[k])) s[k] = raw[k];
+    for (const k of ['todos', 'notes', 'events', 'busFavs']) if (Array.isArray(raw[k])) s[k] = raw[k];
     if (raw.cache && typeof raw.cache === 'object') s.cache = raw.cache;
   }
   return s;
@@ -54,7 +57,7 @@ export const store = {
     if (!data || data.app !== 'life-helper') throw new Error('不是生活小幫手的備份檔');
     state = structuredClone(DEFAULTS);
     Object.assign(state.settings, data.settings || {});
-    for (const k of ['todos', 'notes', 'events']) if (Array.isArray(data[k])) state[k] = data[k];
+    for (const k of ['todos', 'notes', 'events', 'busFavs']) if (Array.isArray(data[k])) state[k] = data[k];
     save(); emit();
   },
 };

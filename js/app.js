@@ -6,6 +6,7 @@ import * as home from './pages/home.js';
 import * as weather from './pages/weather.js';
 import * as calendar from './pages/calendar.js';
 import * as notes from './pages/notes.js';
+import * as bus from './pages/bus.js';
 import * as carrier from './pages/carrier.js';
 import * as settings from './pages/settings.js';
 
@@ -13,6 +14,7 @@ const TABS = [
   { path: '/', label: '首頁', icon: 'home' },
   { path: '/weather', label: '天氣', icon: 'sun' },
   { path: '/calendar', label: '行事曆', icon: 'calendar' },
+  { path: '/bus', label: '公車', icon: 'bus' },
   { path: '/notes', label: '記事', icon: 'note' },
 ];
 
@@ -21,7 +23,7 @@ function resolve(path) {
   if (m) return { page: { render: () => notes.renderEditor(m[1]), mount: (r) => notes.mountEditor(r, m[1]) }, tab: false, title: '記事' };
   const map = {
     '/': [home, '首頁'], '/weather': [weather, '天氣'], '/calendar': [calendar, '行事曆'],
-    '/notes': [notes, '記事本'],
+    '/bus': [bus, '公車'], '/notes': [notes, '記事本'],
     '/carrier': [carrier, '載具條碼', false], '/settings': [settings, '設定', false],
   };
   const hit = map[path] || map['/'];
@@ -36,6 +38,7 @@ function render() {
   const path = currentPath();
   if (lastPath && lastPath.startsWith('/notes/') && path !== lastPath) notes.pruneEmpty();
   if (lastPath === '/carrier' && path !== '/carrier') carrier.releaseWake();
+  if (lastPath === '/bus' && path !== '/bus') bus.stop();
   const changed = path !== lastPath;
   const { page, title, tab } = resolve(path);
   const scroll = changed ? 0 : window.scrollY;
