@@ -124,3 +124,44 @@ export function etaText(e) {
     default: return { big: '—', small: '暫無資料', tone: 'off' };
   }
 }
+
+// ---------- 整條路線即時動態 ----------
+const stopsMemo = new Map();
+/** stopsOfRoute with a 1-day cache (stop lists rarely change) */
+export async function stopsOfRouteCached(city, routeUID) {
+  const key = `${city}|${routeUID}`;
+  if (stopsMemo.has(key)) return stopsMemo.get(key);
+  const all = store.getCache('busStops') || {};
+  const c = all[key];
+  if (c && Date.now() - c.at < 86400000) { stopsMemo.set(key, c.dirs); return c.dirs; }
+  const dirs = await stopsOfRoute(city, routeUID);
+  stopsMemo.set(key, dirs);
+  // keep at most 20 routes in storage
+  const keys = Object.keys(all).sort((a, b) => all[b].at - all[a].at).slice(0, 19);
+  const next = {}; for (const k of keys) next[k] = all[k];
+  next[key] = { at: Date.now(), dirs };
+  store.setCache('busStops', next);
+  return dirs;
+}
+
+/** 整條路線某方向的預估到站與公車位置 */
+export async function fetchRouteLive(city, routeUID, direction) {
+  const f = `RouteUID eq '${q(routeUID)}' and Direction eq ${Number(direction)}`;
+  const [etaRows, nearRows] = await Promise.all([
+    api(`/EstimatedTimeOfArrival/City/${city}`, { $filter: f, $select: 'StopUID,EstimateTime,StopStatus,NextBusTime,PlateNumb' }),
+    api(`/RealTimeNearStop/City/${city}`, { $filter: f, $select: 'PlateNumb,StopUID,StopSequence,A2EventType' }).catch(() => []),
+  ]);
+  const eta = new Map();
+  for (const r of etaRows) {
+    const cur = eta.get(r.StopUID);
+    const rec = { sec: r.EstimateTime ?? null, status: r.StopStatus ?? 0, next: r.NextBusTime || null, plate: r.PlateNumb || '' };
+    if (!cur || (rec.sec != null && (cur.sec == null || rec.sec < cur.sec))) eta.set(r.StopUID, rec);
+  }
+  const buses = new Map(); // stopUID -> [{plate, arriving}]
+  for (const b of nearRows) {
+    if (!b.StopUID) continue;
+    if (!buses.has(b.StopUID)) buses.set(b.StopUID, []);
+    buses.get(b.StopUID).push({ plate: b.PlateNumb || '', arriving: b.A2EventType === 1 });
+  }
+  return { eta, buses };
+}

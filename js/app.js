@@ -21,6 +21,8 @@ const TABS = [
 function resolve(path) {
   const m = path.match(/^\/notes\/([\w-]+)$/);
   if (m) return { page: { render: () => notes.renderEditor(m[1]), mount: (r) => notes.mountEditor(r, m[1]) }, tab: false, title: '記事' };
+  const b = path.match(/^\/bus\/([\w-]+)$/);
+  if (b) return { page: { render: () => bus.renderRoute(b[1]), mount: (r, re) => bus.mountRoute(r, b[1], re) }, tab: true, title: '路線動態' };
   const map = {
     '/': [home, '首頁'], '/weather': [weather, '天氣'], '/calendar': [calendar, '行事曆'],
     '/bus': [bus, '公車'], '/notes': [notes, '記事本'],
@@ -39,6 +41,7 @@ function render() {
   if (lastPath && lastPath.startsWith('/notes/') && path !== lastPath) notes.pruneEmpty();
   if (lastPath === '/carrier' && path !== '/carrier') carrier.releaseWake();
   if (lastPath === '/bus' && path !== '/bus') bus.stop();
+  if (lastPath && lastPath.startsWith('/bus/') && path !== lastPath) bus.stopRoute();
   const changed = path !== lastPath;
   const { page, title, tab } = resolve(path);
   const scroll = changed ? 0 : window.scrollY;

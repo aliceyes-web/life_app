@@ -216,6 +216,7 @@ dialog.sheet::backdrop { background: rgba(20,18,15,0.45); }
 .toast.show { opacity: 1; }
 
 /* bus */
+a.bus-row { color: var(--text); }
 .bus-row { display: flex; align-items: center; gap: 12px; min-height: 68px; border-bottom: 1px solid var(--line-soft); }
 .bus-row:last-child { border-bottom: none; }
 .bus-row .grow { flex: 1; }
@@ -227,3 +228,21 @@ dialog.sheet::backdrop { background: rgba(20,18,15,0.45); }
 .bus-eta.off { color: var(--muted); }
 .bus-eta.off b { font-size: 15px; }
 .bus-eta .tiny { font-weight: 500; }
+
+/* route timeline */
+.route-line { list-style: none; margin: 0; padding: 6px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; }
+.rl-stop { position: relative; display: grid; grid-template-columns: 64px 18px 1fr; align-items: center; column-gap: 10px; min-height: 52px; }
+.rl-stop::before { content: ""; position: absolute; left: 82px; top: 0; bottom: 0; width: 3px; background: var(--line); }
+.rl-stop:first-child::before { top: 50%; }
+.rl-stop:last-child::before { bottom: 50%; }
+.rl-eta { justify-self: stretch; text-align: center; font-size: 13px; font-weight: 700; padding: 5px 0; border-radius: 10px; background: var(--soft); color: var(--soft-text); white-space: nowrap; }
+.rl-eta.soon { background: var(--warm); color: #FFFFFF; }
+[data-mode="dark"] .rl-eta.soon { color: #1C1B19; }
+.rl-eta.off { background: var(--line-soft); color: var(--muted); font-weight: 500; font-size: 12px; }
+.rl-dot { position: relative; z-index: 1; width: 13px; height: 13px; border-radius: 50%; background: var(--card); border: 3px solid var(--check); justify-self: center; }
+.rl-stop.has-bus .rl-dot { border-color: var(--warm); background: var(--warm); }
+.rl-stop.mine .rl-dot { border-color: var(--main); }
+.rl-name { font-size: 15px; min-width: 0; }
+.rl-stop.mine .rl-name { font-weight: 700; }
+.rl-stop.mine { background: linear-gradient(90deg, transparent 0, transparent 92px, var(--soft) 92px); border-radius: 10px; }
+.rl-bus { grid-column: 3; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--warm-text); margin-top: -10px; padding-bottom: 6px; }

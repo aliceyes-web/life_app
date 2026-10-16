@@ -1,6 +1,6 @@
 import { store } from '../store.js';
 import { esc, icon, uid, hhmm, toast } from '../util.js';
-import { BUS_CITIES, cityName, hasKeys, searchRoutes, stopsOfRoute, fetchEtas, etaText } from '../bus.js';
+import { BUS_CITIES, cityName, hasKeys, searchRoutes, stopsOfRoute, stopsOfRouteCached, fetchRouteLive, fetchEtas, etaText } from '../bus.js';
 import { openSheet } from '../sheet.js';
 
 let etas = new Map();
@@ -14,8 +14,9 @@ const REFRESH_MS = 30000;
 
 export function favCard(f, e, { removable = false } = {}) {
   const t = etaText(e);
+  const tag = removable ? 'div' : 'a';
   return `
-    <div class="bus-row">
+    <${tag} class="bus-row"${removable ? '' : ` href="#/bus/${f.id}" aria-label="${esc(f.routeName)} ${esc(f.stopName)}，查看整條路線"`}>
       <div class="bus-route">${esc(f.routeName)}</div>
       <div class="grow" style="min-width:0">
         <div class="ellipsis" style="font-weight:700">${esc(f.stopName)}</div>
@@ -24,7 +25,7 @@ export function favCard(f, e, { removable = false } = {}) {
       ${removable
         ? `<button class="btn danger" data-remove="${f.id}" style="height:40px;padding:0 12px" aria-label="移除 ${esc(f.routeName)} ${esc(f.stopName)}">移除</button>`
         : `<div class="bus-eta ${t.tone}"><b>${esc(t.big)}</b>${t.unit ? `<span>${t.unit}</span>` : ''}${t.small ? `<div class="tiny">${esc(t.small)}</div>` : ''}</div>`}
-    </div>`;
+    </${tag}>`;
 }
 
 export function render() {
@@ -203,3 +204,87 @@ function addFav(rerender) {
     },
   });
 }
+
+// ---------- 整條路線即時動態 ----------
+let rv = { favId: null, dirIdx: 0, dirs: null, live: null, at: null, err: '', loading: false };
+let rTimer = null;
+const ROUTE_REFRESH_MS = 20000;
+
+export function renderRoute(favId) {
+  const f = store.get().busFavs.find((x) => x.id === favId);
+  if (!f) return '<div class="page"><a class="icon-btn" href="#/bus" aria-label="返回">‹</a><div class="card empty">找不到這個站牌</div></div>';
+  if (rv.favId !== favId) rv = { favId, dirIdx: -1, dirs: null, live: null, at: null, err: '', loading: false };
+  const dirs = rv.dirs;
+  const d = dirs ? dirs[rv.dirIdx] : null;
+  const destOf = (x) => (x.stops.length ? x.stops[x.stops.length - 1].name : '');
+  let list = '<div class="card empty">載入路線中…</div>';
+  if (rv.err && !d) list = `<div class="card"><div class="error-text">${esc(rv.err)}</div><button class="btn" id="r-retry">重試</button></div>`;
+  if (d) {
+    list = `<ol class="route-line">${d.stops.map((s) => {
+      const e = rv.live ? (rv.live.eta.get(s.uid) ?? null) : undefined;
+      const t = etaText(e);
+      const buses = rv.live?.buses.get(s.uid) || [];
+      const mine = s.uid === f.stopUID;
+      return `<li class="rl-stop ${mine ? 'mine' : ''} ${buses.length ? 'has-bus' : ''}" ${mine ? 'id="my-stop"' : ''}>
+        <span class="rl-eta ${t.tone}">${esc(t.big)}${t.unit || ''}</span>
+        <span class="rl-dot" aria-hidden="true"></span>
+        <span class="rl-name">${esc(s.name)}${mine ? ' <span class="chip main" style="font-size:11px;padding:1px 8px">常用</span>' : ''}</span>
+        ${buses.length ? `<span class="rl-bus">${icon('bus', 14, 2)}${esc(buses.map((b) => b.plate).join('、'))}</span>` : ''}
+      </li>`;
+    }).join('')}</ol>`;
+  }
+  return `
+  <div class="page">
+    <header class="topbar">
+      <div class="row" style="min-width:0">
+        <a class="icon-btn" href="#/bus" aria-label="返回公車">${icon('back', 18, 2)}</a>
+        <span class="bus-route">${esc(f.routeName)}</span>
+        <span class="small muted ellipsis">${cityName(f.city)}</span>
+      </div>
+      <button class="icon-btn" id="r-refresh" aria-label="重新整理">${icon('refresh', 18, 2)}</button>
+    </header>
+    ${dirs && dirs.length > 1 ? `<div class="seg" role="group" aria-label="方向">${dirs.map((x, i) => `<button data-rdir="${i}" aria-pressed="${i === rv.dirIdx}" class="ellipsis">往 ${esc(destOf(x))}</button>`).join('')}</div>` : d ? `<div class="small muted">往 ${esc(destOf(d))}</div>` : ''}
+    ${rv.err && d ? `<div class="banner" style="background:var(--red-soft);color:var(--red-text)">${esc(rv.err)}</div>` : ''}
+    ${list}
+    ${d ? `<div class="tiny muted">${rv.at ? `更新於 ${hhmm(rv.at)}:${String(rv.at.getSeconds()).padStart(2, '0')} · 每 20 秒自動更新` : '更新中…'}</div>` : ''}
+  </div>`;
+}
+
+export function mountRoute(root, favId, rerender) {
+  const f = store.get().busFavs.find((x) => x.id === favId);
+  if (!f) return;
+  const scrollToMine = () => root.querySelector('#my-stop')?.scrollIntoView({ block: 'center' });
+  const loadLive = async (manual) => {
+    if (rv.loading || !rv.dirs) return;
+    rv.loading = true;
+    const d = rv.dirs[rv.dirIdx];
+    try { rv.live = await fetchRouteLive(f.city, f.routeUID, d.direction); rv.at = new Date(); rv.err = ''; }
+    catch (e) { rv.err = e.message; if (manual) toast(e.message); }
+    finally { rv.loading = false; if (location.hash === `#/bus/${favId}`) rerender(); }
+  };
+  const init = async () => {
+    try {
+      rv.dirs = await stopsOfRouteCached(f.city, f.routeUID);
+      const i = rv.dirs.findIndex((x) => x.direction === f.direction);
+      rv.dirIdx = i >= 0 ? i : 0;
+      rv.err = '';
+    } catch (e) { rv.err = e.message; }
+    if (location.hash !== `#/bus/${favId}`) return;
+    rerender();
+    requestAnimationFrame(scrollToMine);
+    loadLive();
+  };
+  if (!rv.dirs) init();
+  root.querySelector('#r-retry')?.addEventListener('click', () => { rv.err = ''; rerender(); init(); });
+  root.querySelector('#r-refresh')?.addEventListener('click', () => loadLive(true));
+  root.querySelectorAll('[data-rdir]').forEach((b) => b.addEventListener('click', () => {
+    rv.dirIdx = Number(b.dataset.rdir); rv.live = null; rv.at = null; rerender(); loadLive(true);
+  }));
+  clearInterval(rTimer);
+  rTimer = setInterval(() => {
+    if (location.hash !== `#/bus/${favId}`) { clearInterval(rTimer); return; }
+    if (document.visibilityState === 'visible') loadLive();
+  }, ROUTE_REFRESH_MS);
+}
+
+export function stopRoute() { clearInterval(rTimer); rv.favId = null; }
