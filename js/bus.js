@@ -5,7 +5,10 @@ export const BUS_CITIES = [
   { id: 'Taipei', name: '台北市' },
   { id: 'NewTaipei', name: '新北市' },
   { id: 'Keelung', name: '基隆市' },
+  { id: 'InterCity', name: '公路客運' }, // 1xxx、9xxx 等跨縣市路線
 ];
+/** TDX path segment: 市區公車 /City/{City}；公路客運 /InterCity */
+const area = (city) => (city === 'InterCity' ? '/InterCity' : `/City/${city}`);
 export const cityName = (id) => (BUS_CITIES.find((c) => c.id === id) || { name: id }).name;
 
 const TOKEN_URL = 'https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token';
@@ -16,7 +19,14 @@ export const hasKeys = () => {
   return !!(s.tdxId && s.tdxSecret);
 };
 
-async function getToken(force = false) {
+let tokenPromise = null;
+function getToken(force = false) {
+  // share one in-flight request when several searches start at once
+  if (!tokenPromise || force) tokenPromise = fetchToken(force).finally(() => { tokenPromise = null; });
+  return tokenPromise;
+}
+
+async function fetchToken(force = false) {
   const s = store.settings();
   if (!s.tdxId || !s.tdxSecret) throw Object.assign(new Error('請先在「設定 › 公車」填入 TDX 金鑰'), { code: 'NO_KEY' });
   const c = store.getCache('tdxToken');
@@ -55,9 +65,24 @@ async function api(path, params = {}) {
 
 const q = (s) => String(s).replace(/'/g, "''"); // OData string escaping
 
+/** 一次搜尋北北基市區公車與公路客運，回傳 [{uid,name,from,to,city}] */
+export async function searchAllRoutes(keyword) {
+  const results = await Promise.allSettled(BUS_CITIES.map((c) => searchRoutes(c.id, keyword).then((list) => list.map((r) => ({ ...r, city: c.id })))));
+  const ok = results.filter((r) => r.status === 'fulfilled').flatMap((r) => r.value);
+  if (!ok.length) {
+    const err = results.find((r) => r.status === 'rejected');
+    if (err) throw err.reason;
+  }
+  // 雙北聯營路線會同時出現在台北市與新北市，以 RouteUID 去重
+  const seen = new Set();
+  const list = ok.filter((r) => (seen.has(r.uid) ? false : seen.add(r.uid)));
+  const rank = (r) => (r.name === keyword ? 0 : r.name.startsWith(keyword) ? 1 : 2);
+  return list.sort((a, b) => rank(a) - rank(b) || a.name.length - b.name.length || a.name.localeCompare(b.name, 'zh-Hant'));
+}
+
 /** 搜尋路線（名稱包含關鍵字） */
 export async function searchRoutes(city, keyword) {
-  const list = await api(`/Route/City/${city}`, {
+  const list = await api(`/Route${area(city)}`, {
     $filter: `contains(RouteName/Zh_tw,'${q(keyword)}')`,
     $select: 'RouteUID,RouteName,DepartureStopNameZh,DestinationStopNameZh',
     $top: '40',
@@ -69,7 +94,7 @@ export async function searchRoutes(city, keyword) {
 
 /** 路線的去返程站序：[{direction, stops:[{uid,name,seq}]}] */
 export async function stopsOfRoute(city, routeUID) {
-  const list = await api(`/StopOfRoute/City/${city}`, { $filter: `RouteUID eq '${q(routeUID)}'` });
+  const list = await api(`/StopOfRoute${area(city)}`, { $filter: `RouteUID eq '${q(routeUID)}'` });
   const byDir = new Map();
   for (const sub of list) {
     // a route may have several sub-routes per direction; keep the longest one
@@ -91,7 +116,7 @@ export async function fetchEtas(favs) {
   }
   await Promise.all([...byCity.entries()].map(async ([city, list]) => {
     const filter = list.map((f) => `(RouteUID eq '${q(f.routeUID)}' and StopUID eq '${q(f.stopUID)}')`).join(' or ');
-    const rows = await api(`/EstimatedTimeOfArrival/City/${city}`, {
+    const rows = await api(`/EstimatedTimeOfArrival${area(city)}`, {
       $filter: filter,
       $select: 'RouteUID,StopUID,Direction,EstimateTime,StopStatus,NextBusTime,PlateNumb',
     });
@@ -148,8 +173,8 @@ export async function stopsOfRouteCached(city, routeUID) {
 export async function fetchRouteLive(city, routeUID, direction) {
   const f = `RouteUID eq '${q(routeUID)}' and Direction eq ${Number(direction)}`;
   const [etaRows, nearRows] = await Promise.all([
-    api(`/EstimatedTimeOfArrival/City/${city}`, { $filter: f, $select: 'StopUID,EstimateTime,StopStatus,NextBusTime,PlateNumb' }),
-    api(`/RealTimeNearStop/City/${city}`, { $filter: f, $select: 'PlateNumb,StopUID,StopSequence,A2EventType' }).catch(() => []),
+    api(`/EstimatedTimeOfArrival${area(city)}`, { $filter: f, $select: 'StopUID,EstimateTime,StopStatus,NextBusTime,PlateNumb' }),
+    api(`/RealTimeNearStop${area(city)}`, { $filter: f, $select: 'PlateNumb,StopUID,StopSequence,A2EventType' }).catch(() => []),
   ]);
   const eta = new Map();
   for (const r of etaRows) {

@@ -1,6 +1,6 @@
 import { store } from '../store.js';
 import { esc, icon, uid, hhmm, toast } from '../util.js';
-import { BUS_CITIES, cityName, hasKeys, searchRoutes, stopsOfRoute, stopsOfRouteCached, fetchRouteLive, fetchEtas, etaText } from '../bus.js';
+import { cityName, hasKeys, searchAllRoutes, stopsOfRoute, stopsOfRouteCached, fetchRouteLive, fetchEtas, etaText } from '../bus.js';
 import { openSheet } from '../sheet.js';
 
 let etas = new Map();
@@ -121,7 +121,7 @@ export async function loadEtas() {
 
 // ---------- add favourite (3 steps in one sheet) ----------
 function addFav(rerender) {
-  let city = store.getCache('busCity') || 'Taipei';
+  let city = 'Taipei';
   let route = null;
   let dirs = [];
   let dirIdx = 0;
@@ -134,7 +134,6 @@ function addFav(rerender) {
       const box = form.querySelector('#bus-step');
       const step1 = (results = null, kw = '', msg = '') => {
         box.innerHTML = `
-          <div class="seg" role="group" aria-label="縣市">${BUS_CITIES.map((c) => `<button type="button" data-city="${c.id}" aria-pressed="${c.id === city}">${c.name}</button>`).join('')}</div>
           <div class="row">
             <label class="sr-only" for="kw">路線名稱</label>
             <input class="input" id="kw" placeholder="輸入路線，例如 307、紅33" value="${esc(kw)}" enterkeyhint="search" autocomplete="off" style="flex:1">
@@ -144,16 +143,12 @@ function addFav(rerender) {
           ${results ? (results.length ? `<div class="list" style="max-height:52vh;overflow:auto">${results.map((r, i) => `
             <button type="button" class="list-row" data-route="${i}" style="border-left:none;border-right:none;border-top:none;background:none;width:100%;text-align:left;cursor:pointer;color:var(--text)">
               <span class="bus-route">${esc(r.name)}</span>
-              <span class="grow small muted ellipsis">${esc(r.from)} — ${esc(r.to)}</span>${icon('next', 16, 2)}
-            </button>`).join('')}</div>` : '<div class="empty">找不到這條路線，試試其他縣市</div>') : ''}`;
+              <span class="grow" style="min-width:0"><span class="small muted ellipsis" style="display:block">${esc(r.from)} — ${esc(r.to)}</span><span class="tiny" style="color:var(--main)">${cityName(r.city)}</span></span>${icon('next', 16, 2)}
+            </button>`).join('')}</div>` : '<div class="empty">北北基市區公車與公路客運都找不到這條路線</div>') : ''}`;
         const kwInput = box.querySelector('#kw');
-        box.querySelectorAll('[data-city]').forEach((b) => b.addEventListener('click', () => {
-          city = b.dataset.city; store.setCache('busCity', city);
-          if (kwInput.value.trim()) search(kwInput.value.trim()); else step1(null, '');
-        }));
         const search = async (k) => {
           step1(null, k, '搜尋中…');
-          try { const res = await searchRoutes(city, k); step1(res, k); }
+          try { const res = await searchAllRoutes(k); step1(res, k); }
           catch (e) { step1(null, k, '!' + e.message); }
         };
         box.querySelector('#go').addEventListener('click', () => kwInput.value.trim() && search(kwInput.value.trim()));
@@ -164,6 +159,7 @@ function addFav(rerender) {
 
       const pickRoute = async (r, kw) => {
         route = r;
+        city = r.city;
         box.innerHTML = '<div class="empty">載入站牌中…</div>';
         try { dirs = await stopsOfRoute(city, r.uid); }
         catch (e) { step1(null, kw, '!' + e.message); return; }
