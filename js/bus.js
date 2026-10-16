@@ -48,8 +48,10 @@ async function fetchToken(force = false) {
   return j.access_token;
 }
 
-// TDX 對每把金鑰有每秒呼叫次數上限：所有請求排隊、一次一個、間隔至少 MIN_GAP 毫秒
-const MIN_GAP = 350;
+// TDX 對每把金鑰有每秒呼叫次數上限（瀏覽器每次查詢前還會多送一個 CORS 預檢請求）。
+// 所以：所有請求排隊、一次一個、間隔至少 MIN_GAP；被限流時整個暫停 COOLDOWN，不重試。
+const MIN_GAP = 1000;
+const COOLDOWN = 60 * 1000;
 let queue = Promise.resolve();
 let lastCall = 0;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -64,55 +66,72 @@ function throttled(fn) {
   return run;
 }
 
+/** 剩餘冷卻秒數（0 表示可以查詢） */
+export function cooldownLeft() {
+  const until = store.getCache('tdxCooldown') || 0;
+  return Math.max(0, Math.ceil((until - Date.now()) / 1000));
+}
+function rateError() {
+  return Object.assign(new Error(`TDX 暫時限制查詢，約 ${cooldownLeft()} 秒後恢復`), { code: 'RATE' });
+}
+
 async function api(path, params = {}) {
+  if (cooldownLeft()) throw rateError();
   const qs = Object.entries({ ...params, $format: 'JSON' })
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
   const url = `${API}${path}?${qs}`;
-  const token = await getToken();
   const call = (tk) => throttled(async () => {
+    if (cooldownLeft()) throw rateError();
     try { return await fetch(url, { headers: { authorization: `Bearer ${tk}` } }); }
     catch { throw new Error('連不到 TDX，請確認網路'); }
   });
-  let r = await call(token);
+  let r = await call(await getToken());
   if (r.status === 401) r = await call(await getToken(true));
   if (r.status === 429) {
-    // wait a bit and try once more before giving up
-    const after = Number(r.headers.get('retry-after')) || 2;
-    await sleep(Math.min(after, 5) * 1000);
-    r = await call(token);
+    let detail = '';
+    try { detail = (await r.text()).slice(0, 200); } catch { /* ignore */ }
+    console.warn('TDX 429', path, detail);
+    store.setCache('tdxCooldown', Date.now() + COOLDOWN);
+    store.setCache('tdxLast429', { at: Date.now(), path, detail });
+    throw rateError();
   }
-  if (r.status === 429) throw Object.assign(new Error('TDX 查詢太頻繁，稍等一下會自動再更新'), { code: 'RATE' });
   if (!r.ok) throw new Error(`TDX 回應錯誤（${r.status}）`);
   return r.json();
 }
 
 const q = (s) => String(s).replace(/'/g, "''"); // OData string escaping
 
-/** 一次搜尋北北基市區公車與公路客運，回傳 [{uid,name,from,to,city}] */
-export async function searchAllRoutes(keyword) {
-  const results = await Promise.allSettled(BUS_CITIES.map((c) => searchRoutes(c.id, keyword).then((list) => list.map((r) => ({ ...r, city: c.id })))));
-  const ok = results.filter((r) => r.status === 'fulfilled').flatMap((r) => r.value);
-  if (!ok.length) {
-    const err = results.find((r) => r.status === 'rejected');
-    if (err) throw err.reason;
-  }
-  // 雙北聯營路線會同時出現在台北市與新北市，以 RouteUID 去重
-  const seen = new Set();
-  const list = ok.filter((r) => (seen.has(r.uid) ? false : seen.add(r.uid)));
-  const rank = (r) => (r.name === keyword ? 0 : r.name.startsWith(keyword) ? 1 : 2);
-  return list.sort((a, b) => rank(a) - rank(b) || a.name.length - b.name.length || a.name.localeCompare(b.name, 'zh-Hant'));
+// ---- 路線目錄：每個地區一天只下載一次，之後搜尋都在手機上比對，不再呼叫 TDX ----
+const CATALOG_TTL = 24 * 3600 * 1000;
+async function routeCatalog(city) {
+  const all = store.getCache('busRoutes') || {};
+  const c = all[city];
+  if (c && Date.now() - c.at < CATALOG_TTL) return c.list;
+  const rows = await api(`/Route${area(city)}`, { $select: 'RouteUID,RouteName,DepartureStopNameZh,DestinationStopNameZh', $top: '5000' });
+  const list = rows.map((r) => [r.RouteUID, r.RouteName?.Zh_tw || '', r.DepartureStopNameZh || '', r.DestinationStopNameZh || '']);
+  const next = { ...(store.getCache('busRoutes') || {}), [city]: { at: Date.now(), list } };
+  store.setCache('busRoutes', next);
+  return list;
 }
 
-/** 搜尋路線（名稱包含關鍵字） */
-export async function searchRoutes(city, keyword) {
-  const list = await api(`/Route${area(city)}`, {
-    $filter: `contains(RouteName/Zh_tw,'${q(keyword)}')`,
-    $select: 'RouteUID,RouteName,DepartureStopNameZh,DestinationStopNameZh',
-    $top: '40',
-  });
-  return list
-    .map((r) => ({ uid: r.RouteUID, name: r.RouteName?.Zh_tw || '', from: r.DepartureStopNameZh || '', to: r.DestinationStopNameZh || '' }))
-    .sort((a, b) => (a.name === keyword ? -1 : b.name === keyword ? 1 : a.name.length - b.name.length || a.name.localeCompare(b.name, 'zh-Hant')));
+/** 一次搜尋北北基市區公車與公路客運，回傳 [{uid,name,from,to,city}] */
+export async function searchAllRoutes(keyword) {
+  const kw = keyword.trim();
+  const out = [];
+  let firstErr = null;
+  for (const c of BUS_CITIES) { // sequential on purpose: only the first search of the day downloads
+    try {
+      for (const [uid, name, from, to] of await routeCatalog(c.id)) {
+        if (name.includes(kw)) out.push({ uid, name, from, to, city: c.id });
+      }
+    } catch (e) { firstErr = firstErr || e; if (e.code === 'RATE') break; }
+  }
+  if (!out.length && firstErr) throw firstErr;
+  // 雙北聯營路線會同時出現在台北市與新北市，以 RouteUID 去重
+  const seen = new Set();
+  const list = out.filter((r) => (seen.has(r.uid) ? false : seen.add(r.uid)));
+  const rank = (r) => (r.name === kw ? 0 : r.name.startsWith(kw) ? 1 : 2);
+  return list.sort((a, b) => rank(a) - rank(b) || a.name.length - b.name.length || a.name.localeCompare(b.name, 'zh-Hant')).slice(0, 60);
 }
 
 /** 路線的去返程站序：[{direction, stops:[{uid,name,seq}]}] */

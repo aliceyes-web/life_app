@@ -1,5 +1,5 @@
 // Service worker: cache the app shell so it opens offline.
-const VERSION = 'v1.4.1';
+const VERSION = 'v1.5.0';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './css/app.css', './vendor/lunar.js',
   './js/app.js', './js/router.js', './js/store.js', './js/theme.js', './js/util.js', './js/sheet.js',
